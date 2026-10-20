@@ -1,0 +1,9 @@
+# PyTorch: the extra index below provides CUDA builds for Windows/Linux.
+# On macOS pip falls back to the normal PyPI build (which supports Apple MPS).
+--extra-index-url https://download.pytorch.org/whl/cu126
+torch>=2.9
+# pygame-ce is a drop-in fork of pygame (you still write `import pygame`).
+# Classic pygame has no wheels for Python 3.14, pygame-ce does.
+pygame-ce>=2.5.8
+matplotlib>=3.10
+numpy>=2.0
