@@ -80,19 +80,19 @@ class GAConfig:
 class PPOConfig:
     hidden: int = 64                  # actor-critic: 13 -> 64 -> 64, then policy head and value head
     rollout_steps: int = 256          # steps per car collected before each update (x100 cars)
-    gamma: float = 0.99               # discount: how much future reward counts
+    gamma: float = 0.999              # discount: how much future reward counts (spec: 0.99, see README)
     gae_lambda: float = 0.95          # GAE smoothing between 1-step and Monte-Carlo advantage
     epochs: int = 4                   # passes over each rollout
     minibatch_size: int = 4096
     clip_eps: float = 0.2             # PPO clip range for the probability ratio
     vf_coef: float = 0.5              # weight of the value loss
-    ent_coef: float = 0.01            # weight of the entropy bonus (encourages exploration)
+    ent_coef: float = 0.0             # weight of the entropy bonus (spec: 0.01; >0 made the noise grow)
     lr: float = 3e-4                  # Adam learning rate
     max_grad_norm: float = 0.5        # gradient clipping
     init_log_std: float = -0.5        # starting exploration noise (std = e^-0.5 ~ 0.61)
     init_throttle_bias: float = 0.5   # starting mean throttle; 0 = cars mostly sit still at first
     obs_clip: float = 10.0            # normalised observations are clipped to +-this
-    reward_scale: float = 1.0         # rewards are multiplied by this before learning
+    reward_scale: float = 0.2         # rewards are multiplied by this before learning (keeps values ~O(100))
     norm_adv: bool = True             # normalise advantages per minibatch
     random_start: bool = True         # respawn crashed cars at a random point on the track
 

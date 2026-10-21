@@ -99,7 +99,7 @@ def main():
     p.add_argument("--headless", action="store_true", help="train without a window (fastest)")
     p.add_argument("--load", metavar="PATH", help="resume training from a checkpoint")
     p.add_argument("--watch", metavar="PATH", help="watch a saved GA brain / PPO policy drive deterministically")
-    p.add_argument("--seed", type=int, default=0)
+    p.add_argument("--seed", type=int, default=None, help="random seed (default 0, or the checkpoint's seed with --load)")
     p.add_argument("--cars", type=int, default=None,
                    help="number of cars (GA population / PPO parallel envs; default 100). "
                         "Above ~500 a GPU is usually faster than the CPU")
@@ -114,8 +114,11 @@ def main():
     utf8_stdout()
 
     cfg = Config()
-    cfg.seed = args.seed
     checkpoint = load_checkpoint(args.load, "cpu") if args.load else None
+    if args.seed is None:
+        # Resuming keeps the run's own seed, so it also keeps saving into the same checkpoint folder.
+        args.seed = checkpoint.get("seed", 0) if checkpoint is not None else 0
+    cfg.seed = args.seed
     if args.cars:
         cfg.env.n_cars = args.cars
     elif checkpoint is not None:
