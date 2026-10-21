@@ -85,7 +85,7 @@ class PPOTrainer(BaseTrainer):
         self.st_best_lap = torch.tensor(math.inf, device=self.device)
 
     # ------------------------------------------------------------------------------
-    def step(self):
+    def _step(self):
         """One env step for all cars; runs a PPO update every rollout_steps. True if updated."""
         with torch.no_grad():
             self.collect_step()

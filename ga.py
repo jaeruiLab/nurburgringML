@@ -33,6 +33,15 @@ from utils import RunningMeanStd
 RESULT_KEYS = ("best_dist", "speed_sum", "ep_steps", "lap_time", "x", "y", "yaw", "alive")
 
 
+def fitness(best_dist, speed_sum, ep_steps, lap_time, cfg, track_length):
+    """GA fitness: distance + small bonus for average speed + big bonus for a (fast) lap."""
+    g = cfg.ga
+    dist = best_dist.clamp(0, track_length)
+    avg_speed = speed_sum / ep_steps.clamp(min=1)
+    lap_bonus = torch.where(torch.isfinite(lap_time), g.fitness_lap_bonus * cfg.env.ref_lap_time / lap_time, 0.0)
+    return dist + g.fitness_speed_coef * avg_speed + lap_bonus
+
+
 class GATrainer(BaseTrainer):
     algo = "ga"
 
@@ -95,14 +104,10 @@ class GATrainer(BaseTrainer):
     def current_fitness(self):
         """Fitness of every car so far this generation (also used to colour cars live)."""
         self.store_results()
-        r, g = self.res, self.ga
-        dist = r["best_dist"].clamp(0, self.track.length)
-        avg_speed = r["speed_sum"] / r["ep_steps"].clamp(min=1)
-        lap = torch.isfinite(r["lap_time"])
-        lap_bonus = torch.where(lap, g.fitness_lap_bonus * self.cfg.env.ref_lap_time / r["lap_time"], 0.0)
-        return dist + g.fitness_speed_coef * avg_speed + lap_bonus
+        r = self.res
+        return fitness(r["best_dist"], r["speed_sum"], r["ep_steps"], r["lap_time"], self.cfg, self.track.length)
 
-    def step(self):
+    def _step(self):
         """One simulation step for the whole population. Returns True if a generation ended."""
         if self.ga.normalize_obs:
             # Collect statistics of what the alive cars see (sums only: no GPU->CPU sync).
@@ -256,7 +261,7 @@ class GATrainer(BaseTrainer):
         genes = s["genes"].to(self.device)
         if genes.shape[0] != self.P:
             # Population size changed (--cars): fill the new population by cycling through
-            # the saved brains (they are already sorted best-first by the last evolve()).
+            # the saved brains (the first rows are the elites, best first).
             genes = genes[torch.arange(self.P, device=self.device) % genes.shape[0]]
         self.brain.genes = genes
         self.sigma = s["sigma"]

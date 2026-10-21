@@ -49,6 +49,7 @@ Notes on the requirements:
 | `python main.py --watch checkpoints/ppo_seed0/latest.pt` | watch the best saved driver (deterministic, 1 car, lap timer) |
 | `python main.py --watch PATH --headless` | print how far / how fast the saved driver gets |
 | `python main.py --seed 3` | different random seed |
+| `python main.py --cars 1000 --device cuda` | more cars (bigger GA population / more PPO environments), see *More cars* |
 | `python compare.py` | the full GA-vs-PPO experiment (see below) |
 | `python compare.py --budget 5e6 --seeds 0,1` | a quick version of it |
 | `python compare.py --plot-only` | redraw the plots from existing CSVs |
@@ -56,6 +57,8 @@ Notes on the requirements:
 | `python tools/fetch_osm.py` | re-download the track from OpenStreetMap |
 | `python tools/bench.py` | simulation speed on CPU vs GPU |
 | `python tools/snapshot.py --algo ga` | render viewer frames to PNG without a window |
+| `python record.py` | record replays of saved checkpoints for the browser viewer (see below) |
+| `cd web && python -m http.server 8001` | try the browser replay viewer at http://localhost:8001 |
 | `pytest` / `pytest -m "not slow"` | run the tests (`pip install -r requirements-dev.txt` first) |
 
 Checkpoints are written to `checkpoints/{algo}_seed{n}/latest.pt`, plus a numbered copy every
@@ -80,6 +83,67 @@ far around the lap they have got. The white-outlined car is the leader; the came
 draws its 9 raycasts. The HUD shows the algorithm, generation or update, environment steps, cars
 alive, best distance, best lap, leader speed and device. The bottom-left panel is the live
 learning curve.
+
+---
+
+## Browser replay viewer (`web/`)
+
+`web/` is a static website (plain HTML + JavaScript + Canvas, no build step, no frameworks) that replays
+recorded checkpoints, so anyone can watch without installing Python:
+
+* all 100 cars of a generation driving from the start line, the best car highlighted with a trail;
+* GA, PPO, or **side by side at the same number of environment steps**;
+* a training-progress slider, play/pause, 1×/4×/16× playback and a scrubbable timeline;
+* follow-the-best-car or full-track camera, labelled corners;
+* per-replay stats (best distance, lap time, laps finished, cars still driving over time), the learning-curve
+  plots from `results/` and a plain-language "how it works";
+* phone-friendly layout; the address bar keeps the current view (`#mode=split&gen=3&t=60&cam=follow`), so links
+  are shareable.
+
+### Try it locally
+
+```bash
+cd web
+python -m http.server 8001        # any free port; the default is 8000
+```
+
+Then open http://localhost:8001. Opening `index.html` straight from disk does not work, because browsers
+block JavaScript modules and data loading from `file://` pages.
+
+### Publish it with GitHub Pages
+
+Every path in `web/` is relative, so the folder works at any URL.
+
+* **Option A (recommended): GitHub Actions.** The repo includes `.github/workflows/pages.yml`, which publishes
+  `web/`. One-time setup: *Settings → Pages → Build and deployment → Source: GitHub Actions*. Then push to `main`
+  (or run the workflow from the *Actions* tab). The site appears at `https://<user>.github.io/<repo>/`, for this
+  repo **https://jaeruilab.github.io/nurburgringML/**.
+* **Option B: no workflow.** *Settings → Pages → Deploy from a branch → `main`, `/ (root)`*. The viewer is then
+  at `https://<user>.github.io/<repo>/web/`.
+
+The viewer unpacks the replay files with the browser's built-in `DecompressionStream`
+(Chrome/Edge 80+, Safari 16.4+, Firefox 113+).
+
+### Re-recording the replays
+
+```bash
+# 1. train with a checkpoint for every GA generation and log-spaced PPO checkpoints
+python main.py --algo ga  --headless --seed 1 --generations 100 --save-every 1
+python main.py --algo ppo --headless --seed 1 --max-steps 150e6 --save-every 1000000000 --save-log-ratio 1.1
+# 2. replay the chosen generations and write web/data/
+python record.py --gens 1,5,20,50,100,final
+```
+
+* **GA, generation g:** the population as it was at the start of that generation (checkpoint `ga_{g-1}`),
+  driven exactly as in training. Replays are deterministic, and `record.py` prints the training log's best
+  distance next to the replay's so you can see they match.
+* **PPO:** for each GA replay, the PPO checkpoint with the closest number of environment steps. PPO has one
+  driver, so its 100 cars differ only through the (seeded) exploration noise; the noise-free driver's result is
+  shown separately.
+* **Format:** per car, x/y/heading at 20 Hz as int16 (0.2 m and 1/10 430 rad resolution), stored as small
+  differences between frames and gzipped. That is about 1.7 bytes per car per frame, so even a generation
+  where dozens of cars drive a 15-minute lap is ~1–2 MB. `record.py`'s docstring describes the layout,
+  `web/js/decode.js` reads it, and a test checks the two agree.
 
 ---
 
@@ -193,7 +257,32 @@ Two things to keep in mind when reading the numbers:
 * The GA's wall-clock time depends on how long its best cars survive. A generation can't finish
   before its slowest survivor does, and those steps can't be parallelised.
 
-RESULTS_PLACEHOLDER
+### Results (20 M steps × 3 seeds, on the development machine)
+
+![Best distance vs environment steps](results/compare_distance.png)
+![Best lap time vs environment steps](results/compare_laptime.png)
+
+| Method | Best distance after 20 M steps | Best lap | Steps to first lap | Training time | Noise-free driver from the grid |
+|---|---|---|---|---|---|
+| GA | full lap (20.75 km), 3/3 seeds | 13:53 ± 1:57 (best 11:35) | 5.0 M ± 2.0 M | 36 ± 5 min | laps in 13:44 ± 1:58 |
+| PPO | 3.47 ± 0.04 km | no lap | never | 15 min | 5 / 255 / 288 m |
+
+* **The GA learned the whole track.** Every seed got past the first corners within ~1 M steps and completed
+  full laps after 3–8 M steps. Once found, a lapping brain is never lost (elitism), and later generations
+  steadily improve the lap time.
+* **PPO improved steadily but never lapped.** Its mean distance before a crash rose from ~20 m to ~1 km (from
+  random starts), and its best single attempt reached ~3.5 km. Driven without exploration noise from the start
+  line, it crashes at the first corner (Sabine-Schmitz-Kurve), because that "flat out from a standstill into a
+  tight left" situation is rare in its random-start training.
+* **Likely reasons, and what to try first.** With γ = 0.99 at 60 steps per second, PPO effectively looks only
+  ~1.7 s ahead, which is short for learning where to brake. The exploration noise also grows over training
+  (entropy bonus plus clipped actions). Keeping the mean action inside [−1, 1] with tanh stopped the growth but
+  did not change the results in a 10 M-step test. A longer horizon (higher `gamma`, or deciding every few
+  physics steps) is the obvious next experiment.
+* **Wall-clock.** PPO processed steps ~2.5× faster. A GA generation can't finish before its best car does, so
+  long-surviving cars make the GA slower per step. It still reached a full lap first.
+* These numbers come from one machine, three seeds, and the specified hyperparameters; treat them as a
+  starting point, not a verdict on either method.
 
 ---
 
@@ -298,14 +387,33 @@ Every number is in `config.py`. The defaults are the values below.
 * **Step counting** counts only cars that are actually driving.
 * **R key** resets the cars to the start line (non-destructive) instead of wiping training.
 
-### Performance
+### Performance and more cars
 
-For 100 cars the tensors are tiny, so the cost is dominated by per-operation overhead rather than
-arithmetic. On the development machine (i9-10850K, RTX 2060, Windows) one environment step for
-100 cars took about 1.7 ms on the CPU and about 4 ms on CUDA. That is why
-`compare.py` defaults to `--device cpu` and runs seeds in parallel processes. `main.py` follows the
-spec and auto-selects the GPU; pass `--device cpu` if `python tools/bench.py` shows the CPU is faster
-on your machine (with thousands of cars the GPU wins).
+Every tensor has one row per car, so the number of cars is a single setting: `--cars N` on
+`main.py` and `compare.py` (or `EnvConfig.n_cars`). In the GA it is the population size; in PPO it is
+the number of parallel environments, so each update sees `256 × N` samples.
+
+With few cars the tensors are tiny and the cost is per-operation overhead, not arithmetic, so extra cars
+are almost free until the hardware is actually busy. `python tools/bench.py --cars N` measures it. On
+the development machine (i9-10850K, RTX 2060, Windows):
+
+| Cars | CPU (car-steps/s) | RTX 2060 (car-steps/s) |
+|---|---|---|
+| 100 | 53 k | 21 k |
+| 200 | 64 k | 40 k |
+| 500 | 81 k | 103 k |
+| 1 000 | 100 k | 176 k |
+| 2 000 | 107 k | 286 k |
+| 5 000 | 108 k | 403 k |
+
+The CPU tops out around 100 k car-steps/s. The GPU's time per step barely changes until ~500 cars, so
+above that it pulls far ahead: use `--cars 1000 --device cuda` or more. The viewer draws 1 000–2 000 cars at
+60 FPS. `main.py` auto-selects the GPU as specified and prints a tip when the car count is small enough
+that the CPU would be faster. `compare.py` defaults to `--device cpu` because it runs several seeds in
+parallel processes; for large `--cars` use `--device cuda --workers 2` or so.
+
+Resuming with a different car count works: `--load ... --cars 200` refills a GA population by cycling
+through the saved brains (elites first); a PPO network doesn't depend on the number of cars at all.
 
 ## Project layout
 
@@ -319,10 +427,13 @@ ga.py          genetic algorithm trainer
 ppo.py         PPO trainer (actor-critic, GAE, clipped objective)
 trainer.py     shared trainer plumbing (checkpoints, headless loop)
 compare.py     GA vs PPO experiment, plots and summary
+record.py      record checkpoint replays for the browser viewer
 render.py      pygame viewer
 utils.py       device selection, seeding, running mean/std, checkpoint helpers
 data/          nordschleife.geojson (OpenStreetMap)
 tools/         fetch_osm.py, bench.py, snapshot.py
+web/           static browser replay viewer (index.html, css/, js/, data/)
+.github/       GitHub Pages workflow for web/
 tests/         pytest suite
 ```
 

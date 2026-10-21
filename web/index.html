@@ -1,0 +1,154 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Nordschleife Learners</title>
+  <meta name="description" content="Watch 100 AI cars learn the Nürburgring Nordschleife: a genetic algorithm vs PPO reinforcement learning, replayed in your browser.">
+  <link rel="icon" href="favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="css/style.css">
+  <script type="module" src="js/app.js"></script>
+</head>
+<body>
+  <header class="site-header wrap">
+    <h1>Nordschleife Learners</h1>
+    <p class="lede">100 AI cars learn the 20.8&nbsp;km Nürburgring Nordschleife two different ways:
+      <span class="tag tag-ga">GA</span> a genetic algorithm that breeds the best drivers, and
+      <span class="tag tag-ppo">PPO</span> reinforcement learning that trains one shared driver. Every car below is a
+      recorded replay of a saved checkpoint, driven from the start line.</p>
+  </header>
+
+  <main class="wrap">
+    <section id="viewer" aria-label="Replay viewer">
+      <div id="file-warning" class="warning" hidden>
+        <strong>This page needs a tiny local web server.</strong> Browsers don't run it when <code>index.html</code>
+        is opened straight from disk. In a terminal, run:
+        <pre><code>cd web
+python -m http.server 8001</code></pre>
+        then open <a href="http://localhost:8001/">http://localhost:8001/</a>.
+      </div>
+      <script>
+        // Classic (non-module) script: it still runs on file:// pages, where the viewer module is blocked.
+        if (location.protocol === "file:") document.getElementById("file-warning").hidden = false;
+      </script>
+      <div class="toolbar">
+        <div class="seg" role="group" aria-label="Which method">
+          <button type="button" data-mode="ga">GA</button>
+          <button type="button" data-mode="ppo">PPO</button>
+          <button type="button" data-mode="split">Side by side</button>
+        </div>
+        <div class="seg" role="group" aria-label="Camera">
+          <button type="button" data-camera="follow">Follow best</button>
+          <button type="button" data-camera="overview">Full track</button>
+        </div>
+        <div class="seg" role="group" aria-label="Playback speed">
+          <button type="button" data-speed="1">1×</button>
+          <button type="button" data-speed="4">4×</button>
+          <button type="button" data-speed="16">16×</button>
+        </div>
+      </div>
+
+      <div class="stage" id="stage">
+        <div class="view" id="view-ga" data-algo="ga">
+          <canvas aria-label="GA replay"></canvas>
+          <div class="badge"></div>
+          <div class="overlay" hidden></div>
+        </div>
+        <div class="view" id="view-ppo" data-algo="ppo">
+          <canvas aria-label="PPO replay"></canvas>
+          <div class="badge"></div>
+          <div class="overlay" hidden></div>
+        </div>
+      </div>
+
+      <div class="transport">
+        <button type="button" id="play" class="play" aria-label="Play">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path class="icon-play" d="M7 4.5v15l13-7.5z"/><path class="icon-pause" d="M6 4h4.5v16H6zm7.5 0H18v16h-4.5z"/></svg>
+        </button>
+        <input type="range" id="timeline" min="0" max="1" step="0.05" value="0" aria-label="Replay time">
+        <output id="time-label" class="mono">0:00 / 0:00</output>
+      </div>
+
+      <div class="progress-row">
+        <label for="pair">Training progress</label>
+        <input type="range" id="pair" min="0" max="0" step="1" value="0">
+        <output id="pair-label"></output>
+        <div class="curve">
+          <canvas id="curve" aria-label="Best distance so far vs environment steps for the replayed runs; click a dot to jump to that replay"></canvas>
+          <p class="curve-legend"><span class="key key-ga"></span>GA <span class="key key-ppo"></span>PPO
+            best distance so far in training (from random starts for PPO); dots = the replays, log scale.</p>
+        </div>
+      </div>
+
+      <div class="stats" id="stats">
+        <article class="card" id="stats-ga" data-algo="ga"></article>
+        <article class="card" id="stats-ppo" data-algo="ppo"></article>
+      </div>
+      <p class="hint">Keys: <kbd>Space</kbd> play/pause · <kbd>←</kbd><kbd>→</kbd> ±5&nbsp;s ·
+        <kbd>↑</kbd><kbd>↓</kbd> training progress · <kbd>1</kbd><kbd>2</kbd><kbd>3</kbd> speed ·
+        <kbd>F</kbd> camera. The address bar keeps your view, so you can share a link to it.</p>
+    </section>
+
+    <section id="curves">
+      <h2>Learning curves</h2>
+      <p>Both methods got the same budget of <strong>environment steps</strong> (one step = one car simulated for
+        1/60&nbsp;s), three random seeds each. Lines are the mean, shaded bands ± one standard deviation.</p>
+      <div class="plots" id="plots"></div>
+      <div class="table-wrap"><table id="summary"></table></div>
+    </section>
+
+    <section id="how">
+      <h2>How it works</h2>
+      <div class="how-grid">
+        <article>
+          <h3><span class="tag tag-ga">GA</span> Survival of the fittest drivers</h3>
+          <p>Each of the 100 cars has its <em>own</em> small brain: a neural network that turns what the car "sees"
+            (nine distance sensors, its speed, its angle to the road and the upcoming bends) into steering and
+            throttle.</p>
+          <p>A generation starts with everyone on the grid and lasts until the last car crashes. Cars that got
+            further score higher. The 5 best brains are kept as they are; the other 95 are their "children": two good
+            parents' numbers mixed together, plus a few small random changes.</p>
+          <p>Nobody tells a car <em>how</em> to drive. Good brains simply have more children, so each generation
+            drives a little better. You see whole generations here, and each one is a different set of 100 drivers.</p>
+        </article>
+        <article>
+          <h3><span class="tag tag-ppo">PPO</span> One driver, learning from every moment</h3>
+          <p>PPO trains <em>one</em> brain that drives all 100 cars at once. Every 1/60 of a second each car gets a
+            small reward for the meters it gained and a penalty when it crashes.</p>
+          <p>While learning, the driver adds a little randomness to its actions to try new things. After every few
+            seconds of driving it asks, for each moment: <em>did that action turn out better or worse than
+            expected?</em> It then nudges itself toward the better actions, but never too far at once (that is
+            the "proximal" in PPO).</p>
+          <p>In these replays all 100 cars use the same brain. They differ only by that exploration randomness,
+            which is why they spread out. The stats also show how far the brain gets with the randomness switched
+            off.</p>
+        </article>
+        <article>
+          <h3>What's a fair comparison?</h3>
+          <p>A GA "generation" and a PPO "update" are completely different amounts of work, so the slider pairs
+            each GA generation with the PPO checkpoint that had driven about the same number of
+            <strong>environment steps</strong>, which counts how much driving experience each method had used.</p>
+          <p>Training used random start points for PPO and the start line for the GA; here both always start
+            from the line, so you see what each driver can do in the same situation.</p>
+        </article>
+      </div>
+    </section>
+
+    <section id="run">
+      <h2>Run it yourself</h2>
+      <p>The simulation and both learning methods are written in Python with PyTorch: every car is simulated in
+        one batched tensor operation, with no loop over cars.</p>
+      <pre><code>pip install -r requirements.txt
+python main.py                 # watch the GA learn live (pygame)
+python main.py --algo ppo      # the same for PPO
+python compare.py              # the fair GA-vs-PPO experiment
+python record.py               # re-record the replays on this page</code></pre>
+    </section>
+  </main>
+
+  <footer class="wrap site-footer">
+    <p id="attribution">Track centerline © <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>
+      contributors (ODbL 1.0). The physics is a simplified 2-D model, not a racing simulator.</p>
+  </footer>
+</body>
+</html>

@@ -27,11 +27,14 @@ class BaseTrainer:
         self.track = Track(cfg.track, device)
         self.history = []
         self.iteration = 0
-        self._wall_start = time.time()
-        self._wall_before = 0.0  # wall time accumulated before a resume
+        # Training time = sum of the gaps between simulation steps, ignoring any gap longer
+        # than a minute (the viewer was paused, or the computer went to sleep).
+        self._wall = 0.0
+        self._last_tick = time.monotonic()
 
     # -- interface implemented by subclasses ------------------------------------------
-    def step(self):
+    def _step(self):
+        """One environment step; True when a generation / update just finished."""
         raise NotImplementedError
 
     def state_dict(self):
@@ -48,9 +51,16 @@ class BaseTrainer:
     def env_steps(self):
         return self.env.total_steps
 
+    def step(self):
+        now = time.monotonic()
+        gap = now - self._last_tick
+        self._wall += gap if gap < 60.0 else 0.0
+        self._last_tick = now
+        return self._step()
+
     @property
     def wall_time(self):
-        return self._wall_before + time.time() - self._wall_start
+        return self._wall
 
     def train_until(self, max_steps=None, max_iters=None, on_iter=None):
         """Run headless until a step budget or iteration count is reached."""
@@ -92,8 +102,8 @@ class BaseTrainer:
         self.iteration = state["iteration"]
         self.history = state["history"]
         self.env.total_steps = state["env_steps"]
-        self._wall_before = state["wall_time"]
-        self._wall_start = time.time()
+        self._wall = state["wall_time"]
+        self._last_tick = time.monotonic()
         self.load_state_dict(state)
         set_rng_state(state["rng"])
         return state

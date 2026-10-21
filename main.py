@@ -39,14 +39,23 @@ def progress_line(tr):
             f"v {h['value_loss']:8.2f} | ent {h['entropy']:+.2f} | kl {h['approx_kl']:.4f} | {h['wall_time']:7.1f} s")
 
 
-def run_headless(tr, max_steps=None, max_iters=None, save_every=None, quiet=False):
+def run_headless(tr, max_steps=None, max_iters=None, save_every=None, save_log_ratio=None, quiet=False):
     save_every = save_every or (tr.cfg.save_every_generations if tr.algo == "ga" else tr.cfg.save_every_updates)
+    if tr.iteration == 0:
+        tr.save(numbered=True)          # the untrained starting point (record.py replays it as generation 1)
+    next_log_save = [max(1, tr.env_steps) * (save_log_ratio or 1)]
 
     def on_iter(t):
         if not quiet:
             print(progress_line(t), flush=True)
         if t.iteration % save_every == 0:
             t.save(numbered=True)
+        elif save_log_ratio and t.env_steps >= next_log_save[0]:
+            # Extra checkpoints at log-spaced step counts (x ratio each time), so record.py can
+            # find a snapshot close to any env-step count without saving every update.
+            t.save(numbered=True)
+        if save_log_ratio and t.env_steps >= next_log_save[0]:
+            next_log_save[0] = t.env_steps * save_log_ratio
 
     try:
         tr.train_until(max_steps=max_steps, max_iters=max_iters, on_iter=on_iter)
@@ -99,6 +108,8 @@ def main():
     p.add_argument("--generations", type=int, default=None, help="GA: stop after this many generations (headless)")
     p.add_argument("--updates", type=int, default=None, help="PPO: stop after this many updates (headless)")
     p.add_argument("--save-every", type=int, default=None, help="checkpoint every N generations / updates")
+    p.add_argument("--save-log-ratio", type=float, default=None,
+                   help="also checkpoint whenever env steps grow by this factor, e.g. 1.1 (used by record.py)")
     args = p.parse_args()
     utf8_stdout()
 
@@ -136,7 +147,7 @@ def main():
     if args.headless:
         max_iters = args.generations if args.algo == "ga" else args.updates
         run_headless(tr, max_steps=int(args.max_steps) if args.max_steps else None,
-                     max_iters=max_iters, save_every=args.save_every)
+                     max_iters=max_iters, save_every=args.save_every, save_log_ratio=args.save_log_ratio)
     else:
         from render import run_training_viewer
         run_training_viewer(tr)
