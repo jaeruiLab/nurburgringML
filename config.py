@@ -95,6 +95,7 @@ class PPOConfig:
     reward_scale: float = 0.2         # rewards are multiplied by this before learning (keeps values ~O(100))
     norm_adv: bool = True             # normalise advantages per minibatch
     random_start: bool = True         # respawn crashed cars at a random point on the track
+    grid_start_prob: float = 0.0      # ...except this fraction, which restart on the start line
 
 
 @dataclass
