@@ -293,8 +293,9 @@ Two things to keep in mind when reading the numbers:
 * **Starting some episodes on the start line didn't fix that.** With 20% / 50% of respawns on the start line
   (`grid_start_prob`), the best attempts were 7.3 / 12.0 km in 20 M steps, so the option stays off by default.
 * **The lapping run is reproducible.** Single-threaded runs are deterministic, so
-  `python main.py --algo ppo --headless --seed 0 --threads 1` repeats the run that laps (first lap at ~16 M steps);
-  the browser viewer's PPO replays come from that run.
+  `python main.py --algo ppo --headless --seed 0 --threads 1` repeats the run that laps (first lap at ~16 M steps).
+  Continued to 125 M steps it set a **best lap of 9:31** at ~54 M (the GA's best is 9:17), then became less steady
+  again (average distance back to ~1 km, best lap unchanged). The browser viewer's PPO replays come from that run.
 * **Wall-clock.** PPO processed steps ~2.5× faster. A GA generation can't finish before its best car does, so
   long-surviving cars make the GA slower per step. It still reached a full lap first.
 * These numbers come from one machine and a handful of seeds; treat them as a starting point, not a verdict

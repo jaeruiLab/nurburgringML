@@ -115,8 +115,10 @@ python -m http.server 8001</code></pre>
               <td>γ&nbsp;0.99 only looks ~1.7&nbsp;s ahead, too short to plan a braking point.</td></tr>
             <tr><td>γ&nbsp;0.999 (~17&nbsp;s)</td><td>20&nbsp;M</td><td>10.6&nbsp;km</td>
               <td>Better again, but the exploration noise kept growing until the driving fell apart.</td></tr>
-            <tr class="win"><td>γ&nbsp;0.999, <strong>no entropy bonus</strong></td><td>20&nbsp;M</td>
-              <td><strong>full lap</strong> (16:29)</td><td>The noise now shrinks as it learns. Noise-free lap in 14:42. Now the default.</td></tr>
+            <tr class="win"><td>γ&nbsp;0.999, <strong>no entropy bonus</strong></td><td>20&nbsp;M, continued to 125&nbsp;M</td>
+              <td><strong>full lap</strong>: 16:29 at 16&nbsp;M, best <strong>9:31</strong> at 54&nbsp;M</td>
+              <td>The noise now shrinks as it learns; noise-free lap in 14:42 at 20&nbsp;M. Now the default. Trained
+                further it got less steady again (its best lap stayed 9:31).</td></tr>
             <tr><td>γ&nbsp;0.999, small bonus (0.001) / noise capped / tanh mean</td><td>20&nbsp;M each</td>
               <td>13.2 / 8.7 / 13.9&nbsp;km</td><td>Other ways to tame the noise, none as good.</td></tr>
             <tr><td>Some starts from the start line (20% / 50%)</td><td>20&nbsp;M each</td><td>7.3 / 12.0&nbsp;km</td>
@@ -126,8 +128,10 @@ python -m http.server 8001</code></pre>
           </tbody>
         </table>
       </div>
-      <p class="note">The PPO replays above come from the run that laps. The GA needed no tuning beyond scaling its
-        inputs, and lapped on every seed.</p>
+      <p class="note">The PPO replays above come from that run. <a href="#mode=split&amp;gen=51&amp;t=0&amp;cam=follow&amp;speed=16">Generation 51</a>
+        is its best moment from the start line: all 100 PPO cars finish the lap. Generations 49–56 show PPO lapping;
+        later, as that run became less steady, its cars crash earlier again. The GA needed no tuning beyond scaling its
+        inputs, lapped on every seed, and got down to 9:17.</p>
     </section>
 
     <section id="how">
