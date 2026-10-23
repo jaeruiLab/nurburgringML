@@ -2,11 +2,11 @@
 
     python record.py                                   # every GA generation, 6 worker processes
     python record.py --gens 1,5,20,50,100,final        # just a few
-    python record.py --ga checkpoints/ga_seed1 --ppo checkpoints/ppo_seed1 --workers 4
+    python record.py --ga checkpoints/ga_seed1 --ppo checkpoints/ppo_seed0 --workers 4
 
 Make the checkpoints first (one per GA generation, log-spaced ones for PPO):
     python main.py --algo ga  --headless --seed 1 --generations 100 --save-every 1
-    python main.py --algo ppo --headless --seed 1 --max-steps 135e6 --save-every 1000000000 --save-log-ratio 1.1
+    python main.py --algo ppo --headless --seed 0 --threads 1 --max-steps 125e6 --save-every 1000000000 --save-log-ratio 1.1
 
 What it does
   * GA generation g: loads the population as it was at the start of generation g (checkpoint
@@ -320,7 +320,7 @@ def main():
     utf8_stdout()
     p = argparse.ArgumentParser(description="Record GA/PPO replays for the browser viewer.")
     p.add_argument("--ga", default="checkpoints/ga_seed1", help="folder with ga_00000.pt, ga_00001.pt, ...")
-    p.add_argument("--ppo", default="checkpoints/ppo_seed1", help="folder with numbered PPO checkpoints")
+    p.add_argument("--ppo", default="checkpoints/ppo_seed0", help="folder with numbered PPO checkpoints")
     p.add_argument("--gens", default="all", help="'all', or a list like 1,5,20,50,100,final ('final' = last)")
     p.add_argument("--out", default="web/data")
     p.add_argument("--results", default="results", help="where compare.py wrote its plots / summary")

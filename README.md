@@ -130,7 +130,7 @@ The viewer unpacks the replay files with the browser's built-in `DecompressionSt
 ```bash
 # 1. train with a checkpoint for every GA generation and log-spaced PPO checkpoints
 python main.py --algo ga  --headless --seed 1 --generations 100 --save-every 1
-python main.py --algo ppo --headless --seed 1 --max-steps 135e6 --save-every 1000000000 --save-log-ratio 1.1
+python main.py --algo ppo --headless --seed 0 --threads 1 --max-steps 125e6 --save-every 1000000000 --save-log-ratio 1.1
 # 2. replay every generation (6 processes in parallel, ~20 min) and write web/data/
 python record.py
 python record.py --gens 1,5,20,50,100,final     # or just a few
