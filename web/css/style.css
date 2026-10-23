@@ -58,6 +58,7 @@ kbd {
 }
 .tag-ga { background: var(--ga); }
 .tag-ppo { background: var(--ppo); }
+.tag-ppo_spec { background: #1a9a6c; }
 
 /* ---- toolbar ------------------------------------------------------------- */
 .toolbar { display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 12px; }
@@ -109,7 +110,14 @@ kbd {
   background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 8px 12px;
 }
 .transport { grid-template-columns: auto 1fr auto; }
-.progress-row { grid-template-columns: auto 1fr minmax(0, auto); }
+.progress-row { grid-template-columns: auto 1fr auto; }
+#pair-label { grid-column: 1 / -1; color: var(--text-2); }
+.gen-jump { display: inline-flex; align-items: center; gap: 8px; }
+#gen-input {
+  width: 5.2em; min-height: 36px; padding: 0 8px; font: inherit; font-variant-numeric: tabular-nums;
+  color: var(--text); background: var(--surface-2); border: 1px solid var(--border); border-radius: 8px;
+}
+#gen-input:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 .progress-row label { color: var(--text-2); font-size: 0.92rem; white-space: nowrap; }
 #pair-label { font-size: 0.92rem; color: var(--text); }
 .curve { grid-column: 1 / -1; }
@@ -161,6 +169,10 @@ input[type=range] { width: 100%; accent-color: var(--accent); min-height: 32px; 
 table { border-collapse: collapse; width: 100%; font-size: 0.9rem; font-variant-numeric: tabular-nums; }
 th, td { text-align: left; padding: 7px 10px; border-bottom: 1px solid var(--border); white-space: nowrap; }
 th { color: var(--muted); font-weight: 600; font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.03em; }
+.subhead { margin-top: 26px; }
+table.experiments td { white-space: normal; vertical-align: top; min-width: 110px; }
+table.experiments td:last-child { min-width: 240px; color: var(--text-2); }
+table.experiments tr.win td { background: color-mix(in srgb, var(--accent) 12%, transparent); }
 .how-grid { display: grid; gap: 14px; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); }
 .how-grid article { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 14px 16px; }
 .how-grid p { color: var(--text-2); margin: 0 0 0.7em; }
@@ -181,6 +193,7 @@ pre {
   .stage[data-mode="split"], .stats[data-mode="split"] { grid-template-columns: 1fr; }
   .view, .stage[data-mode="split"] .view { aspect-ratio: 1 / 1; }
   .stage[data-mode="split"] .view { aspect-ratio: 4 / 3; }
-  .progress-row { grid-template-columns: 1fr; gap: 4px; }
+  .progress-row { grid-template-columns: 1fr auto; gap: 6px 10px; }
+  .progress-row > label[for=pair] { grid-column: 1 / -1; }
   .seg button { padding: 0 11px; }
 }

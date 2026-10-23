@@ -63,7 +63,8 @@ class PPOTrainer(BaseTrainer):
         super().__init__(cfg, device, seed)
         p = self.p = cfg.ppo
         self.N = cfg.env.n_cars
-        self.env = VecEnv(self.track, cfg, n_cars=self.N, device=device, random_start=p.random_start)
+        self.env = VecEnv(self.track, cfg, n_cars=self.N, device=device, random_start=p.random_start,
+                          grid_start_prob=p.grid_start_prob)
         self.model = ActorCritic(p.hidden, p.init_log_std, p.init_throttle_bias).to(device)
         self.opt = torch.optim.Adam(self.model.parameters(), lr=p.lr, eps=1e-5)
         self.obs_rms = RunningMeanStd(OBS_SIZE, device)

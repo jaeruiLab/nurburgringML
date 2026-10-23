@@ -72,6 +72,9 @@ python -m http.server 8001</code></pre>
       <div class="progress-row">
         <label for="pair">Training progress</label>
         <input type="range" id="pair" min="0" max="0" step="1" value="0">
+        <label class="gen-jump">Generation
+          <input type="number" id="gen-input" min="1" step="1" inputmode="numeric" aria-label="Generation number to play">
+        </label>
         <output id="pair-label"></output>
         <div class="curve">
           <canvas id="curve" aria-label="Best distance so far vs environment steps for the replayed runs; click a dot to jump to that replay"></canvas>
@@ -95,6 +98,36 @@ python -m http.server 8001</code></pre>
         1/60&nbsp;s), three random seeds each. Lines are the mean, shaded bands ± one standard deviation.</p>
       <div class="plots" id="plots"></div>
       <div class="table-wrap"><table id="summary"></table></div>
+
+      <h3 class="subhead">Making PPO work</h3>
+      <p>With the settings it was first given, PPO never got further than about 3.5&nbsp;km, even after
+        150&nbsp;million steps. These are the experiments that found out why. Distances are the best single
+        attempt in training; "noise-free" is the driver without its exploration randomness, from the start line.</p>
+      <div class="table-wrap">
+        <table class="experiments">
+          <thead><tr><th>Experiment</th><th>Training</th><th>Best attempt</th><th>What it showed</th></tr></thead>
+          <tbody>
+            <tr><td>As first specified (γ&nbsp;0.99, entropy bonus 0.01)</td><td>20&nbsp;M × 3 seeds, 150&nbsp;M</td>
+              <td>3.5&nbsp;km (3.8&nbsp;km at 150&nbsp;M)</td><td>A hard ceiling: it never learned to brake for corners.</td></tr>
+            <tr><td>Easy 1.8&nbsp;km test loop</td><td>5&nbsp;M</td><td>full lap</td>
+              <td>The code works, but braking after a long run-up is the weak spot.</td></tr>
+            <tr><td>Look further ahead: γ&nbsp;0.995 (~3&nbsp;s)</td><td>20&nbsp;M</td><td>9.2&nbsp;km</td>
+              <td>γ&nbsp;0.99 only looks ~1.7&nbsp;s ahead, too short to plan a braking point.</td></tr>
+            <tr><td>γ&nbsp;0.999 (~17&nbsp;s)</td><td>20&nbsp;M</td><td>10.6&nbsp;km</td>
+              <td>Better again, but the exploration noise kept growing until the driving fell apart.</td></tr>
+            <tr class="win"><td>γ&nbsp;0.999, <strong>no entropy bonus</strong></td><td>20&nbsp;M</td>
+              <td><strong>full lap</strong> (16:29)</td><td>The noise now shrinks as it learns. Noise-free lap in 14:42. Now the default.</td></tr>
+            <tr><td>γ&nbsp;0.999, small bonus (0.001) / noise capped / tanh mean</td><td>20&nbsp;M each</td>
+              <td>13.2 / 8.7 / 13.9&nbsp;km</td><td>Other ways to tame the noise, none as good.</td></tr>
+            <tr><td>Some starts from the start line (20% / 50%)</td><td>20&nbsp;M each</td><td>7.3 / 12.0&nbsp;km</td>
+              <td>Didn't help overall (50% gave the better noise-free driver: 6.6&nbsp;km).</td></tr>
+            <tr><td>Tuned settings, other seeds</td><td>20&nbsp;M × 3, 135&nbsp;M</td><td>3.7 / 20.3 / 7.1&nbsp;km; 19.1&nbsp;km</td>
+              <td>Much better than before, but luck matters: not every run reaches a full lap.</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p class="note">The PPO replays above come from the run that laps. The GA needed no tuning beyond scaling its
+        inputs, and lapped on every seed.</p>
     </section>
 
     <section id="how">

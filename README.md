@@ -93,7 +93,8 @@ recorded checkpoints, so anyone can watch without installing Python:
 
 * all 100 cars of a generation driving from the start line, the best car highlighted with a trail;
 * GA, PPO, or **side by side at the same number of environment steps**;
-* a training-progress slider, play/pause, 1×/4×/16× playback and a scrubbable timeline;
+* **every GA generation (1–101)**: step through them with the training-progress slider or type a generation number
+  in the box next to it; play/pause, 1×/4×/16× playback and a scrubbable timeline;
 * follow-the-best-car or full-track camera, labelled corners;
 * per-replay stats (best distance, lap time, laps finished, cars still driving over time), the learning-curve
   plots from `results/` and a plain-language "how it works";
@@ -129,9 +130,10 @@ The viewer unpacks the replay files with the browser's built-in `DecompressionSt
 ```bash
 # 1. train with a checkpoint for every GA generation and log-spaced PPO checkpoints
 python main.py --algo ga  --headless --seed 1 --generations 100 --save-every 1
-python main.py --algo ppo --headless --seed 1 --max-steps 150e6 --save-every 1000000000 --save-log-ratio 1.1
-# 2. replay the chosen generations and write web/data/
-python record.py --gens 1,5,20,50,100,final
+python main.py --algo ppo --headless --seed 1 --max-steps 135e6 --save-every 1000000000 --save-log-ratio 1.1
+# 2. replay every generation (6 processes in parallel, ~20 min) and write web/data/
+python record.py
+python record.py --gens 1,5,20,50,100,final     # or just a few
 ```
 
 * **GA, generation g:** the population as it was at the start of that generation (checkpoint `ga_{g-1}`),
@@ -140,10 +142,12 @@ python record.py --gens 1,5,20,50,100,final
 * **PPO:** for each GA replay, the PPO checkpoint with the closest number of environment steps. PPO has one
   driver, so its 100 cars differ only through the (seeded) exploration noise; the noise-free driver's result is
   shown separately.
-* **Format:** per car, x/y/heading at 20 Hz as int16 (0.2 m and 1/10 430 rad resolution), stored as small
-  differences between frames and gzipped. That is about 1.7 bytes per car per frame, so even a generation
-  where dozens of cars drive a 15-minute lap is ~1–2 MB. `record.py`'s docstring describes the layout,
-  `web/js/decode.js` reads it, and a test checks the two agree.
+* **Format:** per car, x/y at 20 Hz as int16 (0.2 m resolution) stored as second differences, plus heading
+  keyframes 5 times a second (~0.35°, interpolated in the browser), all gzipped. Heading jitters a little every
+  frame and was 80% of the data, so storing it less often made the files ~4× smaller: the heaviest generation
+  (50+ cars driving a full lap) is ~0.35 MB. Each replay's file and its per-car results (`<id>.json`) are only
+  downloaded when you open it, so the page loads fast even though all 167 replays (101 GA generations + 66 PPO checkpoints) add up to ~21 MB.
+  `record.py`'s docstring describes the layout, `web/js/decode.js` reads it, and a test checks the two agree.
 
 ---
 
@@ -265,24 +269,36 @@ Two things to keep in mind when reading the numbers:
 | Method | Best distance after 20 M steps | Best lap | Steps to first lap | Training time | Noise-free driver from the grid |
 |---|---|---|---|---|---|
 | GA | full lap (20.75 km), 3/3 seeds | 13:53 ± 1:57 (best 11:35) | 5.0 M ± 2.0 M | 36 ± 5 min | laps in 13:44 ± 1:58 |
-| PPO | 3.47 ± 0.04 km | no lap | never | 15 min | 5 / 255 / 288 m |
+| PPO as specified (γ 0.99, entropy 0.01) | 3.47 ± 0.04 km | no lap | never | 15 min | 5 / 255 / 288 m |
+| PPO tuned (γ 0.999, entropy 0, rewards ×0.2; now the default) | 10.4 ± 7.2 km (3.7 / 20.3 / 7.1) | no lap | never | 15 min | 284 / 0 / 276 m |
+
+(`results/ppo_spec/` keeps the as-specified PPO curves; the plots above show the tuned PPO.)
 
 * **The GA learned the whole track.** Every seed got past the first corners within ~1 M steps and completed
   full laps after 3–8 M steps. Once found, a lapping brain is never lost (elitism), and later generations
   steadily improve the lap time.
-* **PPO improved steadily but never lapped.** Its mean distance before a crash rose from ~20 m to ~1 km (from
-  random starts), and its best single attempt reached ~3.5 km. Driven without exploration noise from the start
-  line, it crashes at the first corner (Sabine-Schmitz-Kurve), because that "flat out from a standstill into a
-  tight left" situation is rare in its random-start training.
-* **Likely reasons, and what to try first.** With γ = 0.99 at 60 steps per second, PPO effectively looks only
-  ~1.7 s ahead, which is short for learning where to brake. The exploration noise also grows over training
-  (entropy bonus plus clipped actions). Keeping the mean action inside [−1, 1] with tanh stopped the growth but
-  did not change the results in a 10 M-step test. A longer horizon (higher `gamma`, or deciding every few
-  physics steps) is the obvious next experiment.
+* **PPO as specified hit a ceiling at ~3.5 km.** Its mean distance before a crash rose from ~20 m to ~1 km
+  (from random starts), and it stayed there even after 150 M steps (best 3.8 km). Driven without exploration noise
+  from the start line it crashes at the first corner (Sabine-Schmitz-Kurve).
+* **Why, and the fix.** With γ = 0.99 at 60 steps per second PPO only looks ~1.7 s ahead, too short to learn
+  where to brake. A sanity check on an easy 1.8 km loop showed the code learns (it lapped there), but with
+  the same braking weakness. Raising γ to 0.999 (~17 s) tripled the distance, but the entropy bonus then made the
+  exploration noise grow until the driving fell apart again. A 4-way sweep at γ = 0.999 found that switching the
+  entropy bonus off works best: the noise shrinks steadily, and one 20 M-step run **finished full laps** (first
+  lap 16:29; its noise-free driver lapped from the start line in 14:42). Those values are now the defaults.
+* **Tuned PPO is much better but unreliable.** All five tuned runs broke the old ceiling (3.7–20.3 km in 20 M
+  steps), but only that one lapped. A 135 M-step tuned run reached 19.1 km (92% of a lap) without completing one,
+  with large swings in between. Its noise-free driver still usually fails the standing start into the first
+  corner, which random-start training rarely practises.
+* **Starting some episodes on the start line didn't fix that.** With 20% / 50% of respawns on the start line
+  (`grid_start_prob`), the best attempts were 7.3 / 12.0 km in 20 M steps, so the option stays off by default.
+* **The lapping run is reproducible.** Single-threaded runs are deterministic, so
+  `python main.py --algo ppo --headless --seed 0 --threads 1` repeats the run that laps (first lap at ~16 M steps);
+  the browser viewer's PPO replays come from that run.
 * **Wall-clock.** PPO processed steps ~2.5× faster. A GA generation can't finish before its best car does, so
   long-surviving cars make the GA slower per step. It still reached a full lap first.
-* These numbers come from one machine, three seeds, and the specified hyperparameters; treat them as a
-  starting point, not a verdict on either method.
+* These numbers come from one machine and a handful of seeds; treat them as a starting point, not a verdict
+  on either method.
 
 ---
 
@@ -350,15 +366,15 @@ Every number is in `config.py`. The defaults are the values below.
 |---|---|---|
 | `hidden` | 64 | actor-critic body: 13 → 64 → 64 |
 | `rollout_steps` | 256 | steps per car between updates (× 100 cars = 25 600 samples) |
-| `gamma` | 0.99 | discount: how much future reward counts (≈ 1.7 s horizon at 60 Hz) |
+| `gamma` | 0.999 | discount: how much future reward counts (≈ 17 s horizon at 60 Hz; spec: 0.99 ≈ 1.7 s) |
 | `gae_lambda` | 0.95 | bias/variance trade-off of the advantage estimate |
 | `epochs`, `minibatch_size` | 4, 4096 | passes over each rollout and minibatch size |
 | `clip_eps` | 0.2 | how far one update may move the policy's probabilities |
-| `vf_coef`, `ent_coef` | 0.5, 0.01 | weights of the value loss and the entropy (exploration) bonus |
+| `vf_coef`, `ent_coef` | 0.5, 0.0 | weights of the value loss and the entropy bonus (spec: 0.01, which made the noise grow) |
 | `lr`, `max_grad_norm` | 3e-4, 0.5 | Adam learning rate and gradient clipping |
 | `init_log_std` | −0.5 | starting exploration noise (std ≈ 0.61) |
 | `init_throttle_bias` | 0.5 | starting mean throttle (see notes) |
-| `obs_clip`, `reward_scale`, `norm_adv` | 10, 1.0, on | observation clipping, reward scaling, advantage normalisation |
+| `obs_clip`, `reward_scale`, `norm_adv` | 10, 0.2, on | observation clipping, reward scaling (keeps value targets small at γ = 0.999), advantage normalisation |
 | `random_start` | on | respawn crashed cars anywhere on the track |
 
 ### Comparison / rendering
@@ -384,6 +400,9 @@ Every number is in `config.py`. The defaults are the values below.
   the slow start.
 * **"No progress" = less than 5 m in 3 s.** With 1 m, cars creeping at walking pace survived for
   the full 20-minute limit and made GA generations extremely long.
+* **PPO defaults differ from the spec:** `gamma` 0.999 (spec 0.99), `ent_coef` 0 (spec 0.01) and `reward_scale` 0.2.
+  With the spec values PPO plateaued at ~3.5 km; see *Results* for the experiments behind the change. Set them
+  back in `config.py` to reproduce the as-specified runs (`results/ppo_spec/`).
 * **Step counting** counts only cars that are actually driving.
 * **R key** resets the cars to the start line (non-destructive) instead of wiping training.
 

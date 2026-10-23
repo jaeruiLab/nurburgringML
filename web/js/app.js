@@ -129,9 +129,10 @@ class View {
     idle = 0;
   }
 
-  setReplay(meta, cars) {
-    this.meta = meta;
-    this.cars = cars;
+  setReplay(meta, loaded) {
+    this.meta = { ...meta, ...loaded.info };                      // summary + per-car results
+    this.cars = loaded.cars;
+    meta = this.meta;
     const N = meta.n_cars;
     // Rank by score: colour green (best) -> red (worst); draw the best cars last (on top).
     const order = [...Array(N).keys()].sort((a, b) => meta.score[a] - meta.score[b]);
@@ -470,6 +471,16 @@ function visible() {
 
 function currentPair() { return manifest.pairs[state.pair]; }
 
+// Index of the replay pair for a GA generation number (the nearest one if it wasn't recorded).
+function pairIndexFor(generation) {
+  if (!manifest) return 0;
+  let best = 0;
+  manifest.pairs.forEach((p, k) => {
+    if (Math.abs(p.generation - generation) < Math.abs(manifest.pairs[best].generation - generation)) best = k;
+  });
+  return best;
+}
+
 function duration() {
   const p = currentPair();
   const ids = state.mode === "split" ? [p.ga, p.ppo] : [p[state.mode]];
@@ -479,7 +490,7 @@ function duration() {
 function getReplay(id) {
   if (!cache.has(id)) {
     const meta = manifest.replays[id];
-    cache.set(id, loadReplay(`data/${meta.file}`, meta, manifest));
+    cache.set(id, loadReplay("data/", meta, manifest));
   }
   return cache.get(id);
 }
@@ -489,8 +500,10 @@ async function selectPair(index) {
   const p = currentPair();
   const gaMeta = manifest.replays[p.ga], ppoMeta = manifest.replays[p.ppo];
   $("#pair").value = state.pair;
+  $("#gen-input").value = p.generation;
   $("#pair-label").textContent =
-    `${p.label} · GA ${fmtSteps(gaMeta.env_steps)} / PPO ${fmtSteps(ppoMeta.env_steps)} env steps`;
+    `${p.label} of ${manifest.pairs[manifest.pairs.length - 1].generation} · ` +
+    `GA ${fmtSteps(gaMeta.env_steps)} / PPO ${fmtSteps(ppoMeta.env_steps)} env steps of training`;
   stats.ga.set(gaMeta);
   stats.ppo.set(ppoMeta, `GA ${p.label.toLowerCase()} (${fmtSteps(gaMeta.env_steps)} steps)`);
   for (const [algo, meta] of [["ga", gaMeta], ["ppo", ppoMeta]]) {
@@ -498,9 +511,9 @@ async function selectPair(index) {
     view.cars = null;
     view.setBadge(meta);
     view.showMessage("Loading replay…");
-    getReplay(meta.id).then((cars) => {
+    getReplay(meta.id).then((loaded) => {
       if (currentPair()[algo] !== meta.id) return;                 // the user moved on meanwhile
-      view.setReplay(meta, cars);
+      view.setReplay(meta, loaded);
       view.showMessage("");
       idle = 0;
     }).catch((err) => view.showMessage(err.message));
@@ -556,7 +569,7 @@ function setSpeed(s) {
 function readHash() {
   const h = new URLSearchParams(location.hash.slice(1));
   if (MODES.includes(h.get("mode"))) state.mode = h.get("mode");
-  if (h.has("gen")) state.pair = parseInt(h.get("gen"), 10) || 0;
+  if (h.has("gen")) state.pair = pairIndexFor(parseInt(h.get("gen"), 10) || 1);
   if (h.has("t")) state.t = parseFloat(h.get("t")) || 0;
   if (["follow", "overview"].includes(h.get("cam"))) state.camera = h.get("cam");
   if (SPEEDS.includes(+h.get("speed"))) state.speed = +h.get("speed");
@@ -566,7 +579,7 @@ function readHash() {
 function writeHash() {
   if (!manifest) return;
   const h = new URLSearchParams({
-    mode: state.mode, gen: state.pair, t: state.t.toFixed(1), cam: state.camera, speed: state.speed,
+    mode: state.mode, gen: currentPair().generation, t: state.t.toFixed(1), cam: state.camera, speed: state.speed,
   });
   history.replaceState(null, "", `#${h}`);
 }
@@ -620,7 +633,7 @@ function drawCurve() {
     const x = curveX(meta.env_steps, w, pad);
     const current = k === state.pair;
     ctx.beginPath();
-    ctx.arc(x, Y(meta.best_distance), (current ? 5 : 3.5) * dpr, 0, 2 * Math.PI);
+    ctx.arc(x, Y(meta.best_distance), (current ? 5 : manifest.pairs.length > 20 ? 2 : 3.5) * dpr, 0, 2 * Math.PI);
     ctx.fillStyle = current ? cssVar("--accent") : cssVar("--text-2");
     ctx.fill();
     if (current) { ctx.fillRect(x - dpr / 2, top, dpr, bottom - top); }
@@ -656,9 +669,9 @@ function renderCurves() {
   if (!rows.length) { $("#summary").hidden = true; return; }
   const num = (v) => (v === "" || v == null ? NaN : +v);
   const body = rows.map((r) => {
-    const algo = r.algo === "ga" ? "GA" : "PPO";
+    const name = { ga: "GA", ppo: "PPO tuned", ppo_spec: "PPO as specified" }[r.algo] || r.algo;
     const first = num(r.steps_to_first_lap);
-    return `<tr><td><span class="tag tag-${r.algo}">${algo}</span></td><td>${r.seed}</td>
+    return `<tr><td><span class="tag tag-${r.algo}">${name}</span></td><td>${r.seed}</td>
       <td>${fmtDist(num(r.final_best_distance_m))}</td><td>${fmtTime(num(r.final_best_lap_s))}</td>
       <td>${isFinite(first) ? fmtSteps(first) : "never"}</td>
       <td>${(num(r.wall_time_s) / 60).toFixed(0)} min</td><td>${fmtTime(num(r.eval_lap_s))}</td></tr>`;
@@ -702,9 +715,19 @@ function wire() {
   $("#play").addEventListener("click", () => setPlaying(!state.playing));
   $("#timeline").addEventListener("input", (e) => { setTime(+e.target.value); writeHash(); });
   $("#pair").addEventListener("input", (e) => { selectPair(+e.target.value); writeHash(); });
+  // Type a generation number and press Enter (or leave the box) to jump straight to it.
+  const genInput = $("#gen-input");
+  const jump = () => {
+    const g = parseInt(genInput.value, 10);
+    if (Number.isFinite(g)) { selectPair(pairIndexFor(g)); writeHash(); }
+    else genInput.value = currentPair().generation;
+  };
+  genInput.addEventListener("change", jump);
+  genInput.addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); jump(); genInput.select(); } });
   // Tap a view to play / pause (handy on phones).
   for (const v of Object.values(views)) v.canvas.addEventListener("click", () => setPlaying(!state.playing));
   document.addEventListener("keydown", (e) => {
+    if (e.target.closest("input[type=number], textarea")) return;     // typing a generation number
     if (e.target.closest("input, textarea") && e.key !== " ") return;
     if (e.target.closest("button") && (e.key === " " || e.key === "Enter")) return;   // the button handles it
     const keys = {
@@ -745,6 +768,8 @@ async function init() {
   const play = readHash();
   if (!new URLSearchParams(location.hash.slice(1)).has("gen")) state.pair = manifest.pairs.length - 1;
   $("#pair").max = manifest.pairs.length - 1;
+  $("#gen-input").min = manifest.pairs[0].generation;
+  $("#gen-input").max = manifest.pairs[manifest.pairs.length - 1].generation;
   setMode(state.mode);
   setCamera(state.camera);
   setSpeed(state.speed);

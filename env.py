@@ -32,13 +32,14 @@ class VecEnv:
     PER_CAR = ("x", "y", "yaw", "v", "seg_idx", "s", "dist", "best_dist", "prog_ref", "stall", "ep_steps",
                "ep_return", "speed_sum", "lap_time", "alive", "last_ray_m", "last_action")
 
-    def __init__(self, track, cfg, n_cars=None, device="cpu", random_start=False):
+    def __init__(self, track, cfg, n_cars=None, device="cpu", random_start=False, grid_start_prob=0.0):
         self.track = track
         self.cfg = cfg
         self.ecfg, self.car = cfg.env, cfg.car
         self.n_full = n_cars or cfg.env.n_cars
         self.device = torch.device(device)
         self.random_start = random_start
+        self.grid_start_prob = grid_start_prob    # with random starts: chance a respawn uses the start line
         self.dt = self.ecfg.dt
         e, c = self.ecfg, self.car
         f32 = dict(dtype=torch.float32, device=self.device)
@@ -134,6 +135,9 @@ class VecEnv:
         t = self.track
         if random:
             idx = torch.randint(0, t.M, (self.N,), device=self.device)
+            if self.grid_start_prob > 0:
+                at_grid = torch.rand(self.N, device=self.device) < self.grid_start_prob
+                idx = torch.where(at_grid, torch.zeros_like(idx), idx)
         else:
             idx = torch.zeros(self.N, dtype=torch.long, device=self.device)
         w = lambda new, old: torch.where(mask, new, old)

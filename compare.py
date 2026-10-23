@@ -27,8 +27,9 @@ import warnings
 
 import numpy as np
 
-COLORS = {"ga": "#2a78d6", "ppo": "#eb6834"}          # categorical slots 1 and 2
-LABELS = {"ga": "GA (neuroevolution)", "ppo": "PPO (reinforcement learning)"}
+COLORS = {"ga": "#2a78d6", "ppo": "#eb6834", "ppo_spec": "#1baf7a"}   # categorical slots 1, 2, 3
+LABELS = {"ga": "GA (neuroevolution)", "ppo": "PPO (tuned)", "ppo_spec": "PPO (as specified)"}
+SHORT = {"ga": "GA", "ppo": "PPO", "ppo_spec": "PPO (spec)"}
 SURFACE, INK, INK_2, GRID = "#fcfcfb", "#0b0b0b", "#52514e", "#e4e3df"
 
 
@@ -117,13 +118,15 @@ def at_steps(steps, values, grid, before=np.nan):
     return out.astype(float)
 
 
-def collect(out_dir, algos, seeds, budget, n_grid):
+def collect(out_dir, algos, seeds, budget, n_grid, extra=None):
+    """extra: {series name: (folder, file prefix)}, e.g. a reference run kept in another folder."""
     grid = np.linspace(0, budget, n_grid)
     data = {}
-    for algo in algos:
+    sources = [(a, out_dir, a) for a in algos] + [(k, d, p) for k, (d, p) in (extra or {}).items()]
+    for algo, folder, prefix in sources:
         runs = []
         for s in seeds:
-            path = os.path.join(out_dir, f"{algo}_seed{s}.csv")
+            path = os.path.join(folder, f"{prefix}_seed{s}.csv")
             if os.path.exists(path):
                 runs.append((s, *read_run(path)))
         if runs:
@@ -157,28 +160,39 @@ def plot_curves(grid, data, key, ylabel, title, path, scale=1.0, ref=None, lower
     fig, ax = plt.subplots(figsize=(8.5, 4.6), dpi=150, facecolor=SURFACE)
     style_axes(ax)
     x = grid / 1e6
+    no_laps = []
     for algo, d in data.items():
         vals = d[key] * scale
+        if key == "lap" and not np.isfinite(vals).any():
+            no_laps.append(LABELS[algo])           # nothing to draw: say so instead of an empty legend entry
+            continue
         n = np.sum(np.isfinite(vals), axis=0)
         with warnings.catch_warnings():          # columns with no lap yet are all-NaN: fine
             warnings.simplefilter("ignore", RuntimeWarning)
             mean = np.where(n > 0, np.nanmean(np.where(np.isfinite(vals), vals, np.nan), axis=0), np.nan)
             std = np.where(n > 1, np.nanstd(vals, axis=0), 0.0)
         c = COLORS[algo]
+        reference = algo == "ppo_spec"            # drawn dashed, as a baseline
         lo, hi = mean - std, mean + std
         if clip is not None:                      # e.g. distance can't be < 0 or > one lap
             lo, hi = np.clip(lo, *clip), np.clip(hi, *clip)
-        ax.fill_between(x, lo, hi, color=c, alpha=0.16, linewidth=0)
-        ax.plot(x, mean, color=c, linewidth=2.0, label=f"{LABELS[algo]}  (n={len(d['seeds'])} seeds)")
+        ax.fill_between(x, lo, hi, color=c, alpha=0.10 if reference else 0.16, linewidth=0)
+        ax.plot(x, mean, color=c, linewidth=1.6 if reference else 2.0, linestyle=(0, (5, 3)) if reference else "-",
+                label=f"{LABELS[algo]}, {len(d['seeds'])} seeds")
         last = np.where(np.isfinite(mean))[0]
         if len(last):
             i = last[-1]
             ax.plot([x[i]], [mean[i]], "o", color=c, markersize=5, markeredgecolor=SURFACE, markeredgewidth=1.5)
-            ax.annotate(algo.upper(), (x[i], mean[i]), xytext=(6, 0), textcoords="offset points",
+            ax.annotate(SHORT[algo], (x[i], mean[i]), xytext=(6, 0), textcoords="offset points",
                         va="center", fontsize=9, color=INK, weight="bold")
             if key == "lap" and n[i] < len(d["seeds"]):
                 ax.annotate(f"{n[i]}/{len(d['seeds'])} seeds have a lap", (x[i], mean[i]), xytext=(6, -12),
                             textcoords="offset points", fontsize=7.5, color=INK_2)
+    if key == "lap":
+        note = "Average over the seeds that have finished a lap so far."
+        if no_laps:
+            note += "  No lap yet: " + ", ".join(no_laps) + "."
+        ax.text(0.01, 0.02, note, transform=ax.transAxes, fontsize=8, color=INK_2)
     if ref is not None:
         ax.axhline(ref[0], color=INK_2, linewidth=1, linestyle=(0, (4, 3)))
         ax.annotate(ref[1], (0, ref[0]), xytext=(4, 4), textcoords="offset points", fontsize=8, color=INK_2)
@@ -188,7 +202,8 @@ def plot_curves(grid, data, key, ylabel, title, path, scale=1.0, ref=None, lower
     ax.set_title(title + ("  (lower is better)" if lower_is_better else ""), loc="left", fontsize=11,
                  color=INK, pad=26)
     # Legend in one row between the title and the plot, so it never covers a line.
-    leg = ax.legend(loc="lower left", bbox_to_anchor=(0, 1.0), ncol=2, frameon=False, fontsize=8.5,
+    leg = ax.legend(loc="lower left", bbox_to_anchor=(0, 1.0), ncol=max(1, len(data) - len(no_laps)), frameon=False,
+                    fontsize=8.5,
                     borderaxespad=0.2, handlelength=1.8)
     for t in leg.get_texts():
         t.set_color(INK)
@@ -269,6 +284,8 @@ def main():
                    help="cpu (default: many small runs in parallel are fastest on CPU) | auto | cuda | mps")
     p.add_argument("--out", default=cfg.compare.out_dir)
     p.add_argument("--plot-only", action="store_true", help="skip training; re-plot existing CSVs")
+    p.add_argument("--reference", default=os.path.join(cfg.compare.out_dir, "ppo_spec"),
+                   help="folder with as-specified PPO runs to draw as a dashed baseline ('' = none)")
     args = p.parse_args()
 
     budget = int(args.budget)
@@ -299,8 +316,16 @@ def main():
                 results = pool.map(run_one, job_args, chunksize=1)
         print(f"All runs finished in {(time.time() - t0) / 60:.1f} min")
 
+    extra = {}
+    if args.reference and os.path.isdir(args.reference):
+        extra["ppo_spec"] = (args.reference, "ppo")
+        for s in seeds:
+            path = os.path.join(args.reference, f"ppo_seed{s}_eval.json")
+            if os.path.exists(path):
+                with open(path, encoding="utf-8") as f:
+                    results.append({**json.load(f), "algo": "ppo_spec"})
     track_length = Track(cfg.track).length
-    grid, data = collect(args.out, algos, seeds, budget, cfg.compare.grid_points)
+    grid, data = collect(args.out, algos, seeds, budget, cfg.compare.grid_points, extra)
     if not data:
         print("No result CSVs found.")
         return

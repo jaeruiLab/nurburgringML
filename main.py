@@ -104,6 +104,8 @@ def main():
                    help="number of cars (GA population / PPO parallel envs; default 100). "
                         "Above ~500 a GPU is usually faster than the CPU")
     p.add_argument("--device", default=None, help="auto | cpu | cuda | mps (default: config.device = auto)")
+    p.add_argument("--threads", type=int, default=None,
+                   help="CPU threads for PyTorch (1 makes a run exactly reproducible from its seed)")
     p.add_argument("--max-steps", type=float, default=None, help="stop after this many env steps (headless)")
     p.add_argument("--generations", type=int, default=None, help="GA: stop after this many generations (headless)")
     p.add_argument("--updates", type=int, default=None, help="PPO: stop after this many updates (headless)")
@@ -124,6 +126,9 @@ def main():
     elif checkpoint is not None:
         cfg.env.n_cars = checkpoint["config"]["env"]["n_cars"]   # resume with the same number of cars
     device = get_device(args.device or cfg.device)
+    if args.threads:
+        import torch
+        torch.set_num_threads(args.threads)
     print(f"Device: {device_name(device)}, {cfg.env.n_cars} cars")
     if device.type != "cpu" and not args.device and cfg.env.n_cars < 500:
         print(f"Tip: with {cfg.env.n_cars} cars the CPU is often faster than a GPU (per-operation overhead "

@@ -5,3 +5,4 @@ checkpoints/
 .pytest_cache/
 results/checkpoints/
 results/smoke/
+web/data.new/
